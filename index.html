@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Interactive Call Flow</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eef2f6;color:#172b42;font:15px system-ui}header{background:#182e45;color:white;padding:13px 5%;display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}a{color:inherit}main{max-width:1150px;margin:auto;padding:22px}h1{font-size:34px;margin:2px 0;letter-spacing:-.04em}.tag{font-size:11px;font-weight:750;letter-spacing:.12em;color:#456883}.case{margin:7px 0 15px;color:#49617a}.panel{display:grid;grid-template-columns:1.5fr 1fr;gap:16px}section,aside{border:1px solid #cedae6;background:white;padding:17px;border-radius:10px}aside{background:#e2ebf4}h2,h3{margin:4px 0 10px}nav,.actions{display:flex;gap:7px;margin:10px 0;flex-wrap:wrap;align-items:center}button,select,input,textarea{font:inherit;color:inherit;border:1px solid #a8bed0;border-radius:5px;background:white;padding:7px 10px}button{cursor:pointer}button[aria-pressed=true],.primary{background:#22537b;color:white;border-color:#22537b}label{display:block;margin:8px 0}input[type=checkbox]{margin-right:8px}select,textarea,input[type=text]{width:100%;margin-top:4px}textarea{resize:vertical}blockquote{margin:0 0 12px;padding:11px;background:#eef4fa;border-left:3px solid #3e6b94;white-space:pre-wrap}ul{padding-left:20px}li{margin:4px 0}.help{font-size:13px;color:#49617a}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}details{border:1px solid #cedae6;padding:10px;margin:8px 0;border-radius:6px}summary{cursor:pointer;font-weight:650}.edit-row{background:#f2f6fa;padding:10px;margin:8px 0;border-radius:6px}.small{font-size:12px}[hidden]{display:none!important}@media(max-width:680px){.panel,.field-grid{grid-template-columns:1fr}main{padding:14px}}
+</style>
+<header><a href="https://portfolio.jordanmcdonley.com/#call-flow">← Portfolio</a><strong>Sales enablement workspace</strong><div><button id="settings">Configure flow</button> <button id="new">New call</button></div></header>
+<main>
+<div class="tag">GUIDED CONVERSATION</div><h1>Interactive Call Flow</h1>
+<p class="case">Choose a prompt, capture what you hear, and turn it into a presentation.</p>
+<div id="status" class="help" role="status"></div>
+<div id="runner">
+<nav id="stages" aria-label="Call stages"></nav>
+<div class="panel"><section id="conversation"></section><aside id="brief" aria-live="polite"></aside></div>
+</div>
+<section id="editor" hidden><h2>Configure your call flow</h2><p class="help">Edit and reorder stages, then define which discoveries support each offer. Templates are saved on this browser. Export a JSON copy to move a template between browsers.</p><div id="fields"></div><div class="actions"><button id="save" class="primary">Save flow</button><button id="cancel">Cancel</button><button id="export">Export saved template</button><label class="small">Import template <input id="import" type="file" accept=".json,application/json"></label></div></section>
+<p class="help">The starting template uses a fictional internet-service scenario. Call selections and notes clear when you start a new call or reload.</p>
+</main>
+<script>
+'use strict';
+const sample = {
+ stages:[
+  {id:'open',type:'script',title:'Open',text:'Thanks for calling. What can I help you with today?'},
+  {id:'agenda',type:'agenda',title:'Set the agenda',text:''},
+  {id:'discover',type:'discovery',title:'Discovery',text:''},
+  {id:'present',type:'presentation',title:'Presentation',text:'Based on what you shared, here is the option I would start with.'},
+  {id:'close',type:'script',title:'Close',text:'Does this address the main concern? Let’s agree on what happens next.'}
+ ],
+ transitions:[
+  {id:'new',title:'New service',text:'I’ll ask how your household uses the connection, then we can compare the options that fit.'},
+  {id:'move',title:'Transfer service',text:'Let’s confirm what needs to move and what you want to change at the new address.'},
+  {id:'change',title:'Change of service',text:'Let’s narrow down what is not working today before we choose what to change.'}
+ ],
+ topics:[
+  {id:'who',title:'Household',question:'Who is using the connection, and when are they usually online?',items:[{id:'family',label:'Several people online together'}]},
+  {id:'how',title:'Usage',question:'What do you use the connection for most often?',items:[{id:'calls',label:'Work video calls drop upstairs'},{id:'gaming',label:'Gaming while others stream'}]},
+  {id:'video',title:'Video and streaming',question:'Do you watch live channels or mostly stream on demand?',items:[{id:'ondemand',label:'Mostly watches on-demand streaming'}]},
+  {id:'devices',title:'Devices and coverage',question:'Which devices have trouble and where are they in the home?',items:[{id:'upstairs',label:'Weak Wi-Fi in the upstairs office'}]},
+  {id:'mobile',title:'Mobile and budget',question:'How many lines do you have and what matters most about your bill?',items:[{id:'budget',label:'Wants to avoid a higher monthly bill'}]}
+ ],
+ offers:[
+  {id:'coverage',title:'Home Wi-Fi review',text:'Check the upstairs connection and test a video call before making plan changes.',ties:{family:'Start by testing during the busiest part of the day.',calls:'Test a work call from the upstairs office to confirm whether the dropouts stop.',upstairs:'Check router placement and upstairs signal before recommending equipment.',budget:'Start with checks that have no added monthly cost.'}},
+  {id:'plan',title:'Internet plan review',text:'Compare the current plan with household usage and explain any trade-offs.',ties:{family:'Compare the plan with how many people are online at once.',gaming:'Test gaming latency while video is streaming before recommending a change.',ondemand:'Focus the comparison on streaming needs.',budget:'Show the current and proposed monthly totals side by side.'}}
+ ]
+};
+const $ = id => document.getElementById(id);
+const storageKey = 'jordan-call-flow-template-v1';
+const clone = value => JSON.parse(JSON.stringify(value));
+function element(tag,text){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;}
+function button(text,action){const node=element('button',text);node.type='button';node.onclick=action;return node;}
+function field(label,value,change,multiline=false){const row=element('label',label);const input=element(multiline?'textarea':'input');if(!multiline)input.type='text';input.value=value;input.oninput=()=>change(input.value);row.append(input);return row;}
+function selectField(label,options,value,change){const row=element('label',label),select=element('select');for(const item of options){const option=element('option',item.title);option.value=item.id;select.append(option);}select.value=value;select.onchange=()=>change(select.value);row.append(select);return row;}
+function list(items){const node=element('ul');for(const item of items)node.append(element('li',item));return node;}
+function validate(value){
+ if(!value||!['stages','transitions','topics','offers'].every(k=>Array.isArray(value[k])&&value[k].length))throw Error('A template needs stages, transitions, discovery topics, and offers.');
+ const strings=(entry,keys)=>entry&&keys.every(k=>typeof entry[k]==='string'&&entry[k].trim());
+ const unique=entries=>new Set(entries.map(x=>x.id)).size===entries.length;
+ if(!value.stages.every(s=>strings(s,['id','title'])&&['script','agenda','discovery','presentation'].includes(s.type)&&typeof s.text==='string')||!unique(value.stages)||!['agenda','discovery','presentation'].every(type=>value.stages.some(s=>s.type===type)))throw Error('Keep at least one agenda, discovery, and presentation stage. Give every stage a title.');
+ if(!value.transitions.every(t=>strings(t,['id','title','text']))||!unique(value.transitions))throw Error('Give each transition a name and a statement.');
+ if(!value.topics.every(t=>strings(t,['id','title','question'])&&Array.isArray(t.items)&&t.items.length&&t.items.every(i=>strings(i,['id','label'])))||!unique(value.topics)||!unique(value.topics.flatMap(t=>t.items)))throw Error('Each discovery topic needs a name, a question, and at least one selectable answer.');
+ if(!value.offers.every(o=>strings(o,['id','title','text'])&&o.ties&&typeof o.ties==='object'&&!Array.isArray(o.ties)&&Object.values(o.ties).every(x=>typeof x==='string'))||!unique(value.offers))throw Error('Give every offer a name and a presentation statement.');
+ return value;
+}
+let config=sample;
+try{const raw=localStorage.getItem(storageKey);if(raw)config=validate(JSON.parse(raw));}catch{}
+let draft,stage,transition,topic,offer,notes,selected;
+function reset(useExample=false){
+ stage=useExample?config.stages.find(s=>s.type==='discovery').id:config.stages[0].id;
+ transition=config.transitions[0].id;topic=config.topics[Math.min(useExample?1:0,config.topics.length-1)].id;offer=config.offers[0].id;notes='';
+ selected=new Set(useExample?['calls','upstairs','budget']:[]);
+}
+const byId=(items,id)=>items.find(x=>x.id===id)||items[0];
+const checked=()=>config.topics.flatMap(t=>t.items).filter(i=>selected.has(i.id));
+function renderBrief(){
+ const current=byId(config.offers,offer),items=checked(),ties=items.filter(i=>current.ties[i.id]?.trim());
+ $('brief').replaceChildren(element('div','LIVE CALL BRIEF'),element('h2','What the customer mentioned'),items.length?list(items.map(i=>i.label)):element('p','Select the answers you hear in Discovery.'));
+ $('brief').append(element('h3','Tiebacks · '+current.title),ties.length?list(ties.map(i=>i.label+' → '+current.ties[i.id])):element('p','No matching tiebacks for this offer yet.'));
+}
+function render(){
+ const active=byId(config.stages,stage),view=$('conversation');
+ $('stages').replaceChildren(...config.stages.map((s,i)=>{const b=button((i+1)+' · '+s.title,()=>{stage=s.id;render();});b.setAttribute('aria-pressed',s.id===active.id);return b;}));
+ view.replaceChildren(element('h2',active.title));
+ if(active.text)view.append(element('blockquote',active.text));
+ if(active.type==='agenda'){
+  view.append(selectField('Call type',config.transitions,transition,id=>{transition=id;render();}),element('blockquote',byId(config.transitions,transition).text));
+ }
+ if(active.type==='discovery'){
+  const current=byId(config.topics,topic);
+  view.append(selectField('Discovery topic',config.topics,topic,id=>{topic=id;render();}),element('blockquote',current.question),element('h3','What did they mention?'));
+  for(const item of current.items){
+   const row=element('label'),input=element('input');
+   input.type='checkbox';input.checked=selected.has(item.id);
+   input.onchange=()=>{if(input.checked)selected.add(item.id);else selected.delete(item.id);renderBrief();};
+   row.append(input,item.label);view.append(row);
+  }
+  view.append(field('Call notes',notes,value=>{notes=value;},true));
+ }
+ if(active.type==='presentation'){
+  const current=byId(config.offers,offer);
+  view.append(selectField('Offer to present',config.offers,offer,id=>{offer=id;render();}),element('blockquote',current.text));
+  if(notes.trim())view.append(element('h3','Your call notes'),element('blockquote',notes));
+ }
+ const index=config.stages.indexOf(active),actions=element('div');actions.className='actions';
+ if(index>0)actions.append(button('← Previous',()=>{stage=config.stages[index-1].id;render();}));
+ if(index<config.stages.length-1)actions.append(button('Next →',()=>{stage=config.stages[index+1].id;render();}));
+ view.append(actions);renderBrief();
+}
+const id=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
+function group(title){
+ const section=element('details');section.append(element('summary',title));$('fields').append(section);return section;
+}
+function row(parent){const node=element('div');node.className='edit-row';parent.append(node);return node;}
+function remove(items,index){items.splice(index,1);edit();}
+function edit(){
+ $('fields').replaceChildren();
+ const stages=group('Stages and script');
+ draft.stages.forEach((s,index)=>{
+  const entry=row(stages);
+  entry.append(field('Stage title',s.title,v=>s.title=v),selectField('Stage type',[{id:'script',title:'Script'},{id:'agenda',title:'Agenda and transition'},{id:'discovery',title:'Discovery'},{id:'presentation',title:'Presentation'}],s.type,v=>s.type=v),field('Script or instruction',s.text,v=>s.text=v,true));
+  if(index>0)entry.append(button('Move up',()=>{[draft.stages[index-1],draft.stages[index]]=[draft.stages[index],draft.stages[index-1]];edit();}));
+  entry.append(button('Remove stage',()=>remove(draft.stages,index)));
+ });
+ stages.append(button('Add stage',()=>{draft.stages.push({id:id(),type:'script',title:'',text:''});edit();}));
+ const transitions=group('Call types and transition statements');
+ draft.transitions.forEach((t,index)=>row(transitions).append(field('Call type',t.title,v=>t.title=v),field('Transition statement',t.text,v=>t.text=v,true),button('Remove transition',()=>remove(draft.transitions,index))));
+ transitions.append(button('Add transition',()=>{draft.transitions.push({id:id(),title:'',text:''});edit();}));
+ const topics=group('Discovery questions and selectable answers');
+ draft.topics.forEach((t,index)=>{
+  const entry=row(topics);
+  entry.append(field('Topic',t.title,v=>t.title=v),field('Discovery question',t.question,v=>t.question=v,true));
+  t.items.forEach((item,i)=>entry.append(field('Selectable answer',item.label,v=>item.label=v),button('Remove answer',()=>remove(t.items,i))));
+  entry.append(button('Add answer',()=>{t.items.push({id:id(),label:''});edit();}),button('Remove topic',()=>remove(draft.topics,index)));
+ });
+ topics.append(button('Add discovery topic',()=>{draft.topics.push({id:id(),title:'',question:'',items:[{id:id(),label:''}]});edit();}));
+ const offers=group('Offers and presentation tiebacks');
+ draft.offers.forEach((o,index)=>{
+  const entry=row(offers);
+  entry.append(field('Offer name',o.title,v=>o.title=v),field('Presentation statement',o.text,v=>o.text=v,true),element('p','Write an optional tieback for each answer that supports this offer.'));
+  for(const t of draft.topics)for(const item of t.items)entry.append(field(t.title+' · '+item.label,o.ties[item.id]||'',v=>o.ties[item.id]=v));
+  entry.append(button('Remove offer',()=>remove(draft.offers,index)));
+ });
+ offers.append(button('Add offer',()=>{draft.offers.push({id:id(),title:'',text:'',ties:{}});edit();}));
+}
+function setEditor(open){$('editor').hidden=!open;$('runner').hidden=open;$('settings').disabled=open;$('new').disabled=open;}
+$('settings').onclick=()=>{draft=clone(config);$('status').textContent='';edit();setEditor(true);};
+$('cancel').onclick=()=>{$('status').textContent='';setEditor(false);};
+$('new').onclick=()=>{reset();render();$('status').textContent='New call started.';};
+$('save').onclick=()=>{
+ try{validate(draft);localStorage.setItem(storageKey,JSON.stringify(draft));config=draft;reset();render();setEditor(false);$('status').textContent='Template saved. Started a new call with your flow.';}
+ catch(error){$('status').textContent=error.message;$('status').scrollIntoView({block:'nearest'});}
+};
+$('export').onclick=()=>{
+ const url=URL.createObjectURL(new Blob([JSON.stringify(config,null,2)],{type:'application/json'}));
+ const link=element('a');link.href=url;link.download='call-flow-template.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+$('import').onchange=async event=>{
+ const file=event.target.files[0];if(!file)return;
+ try{if(file.size>1000000)throw Error('Choose a template smaller than 1 MB.');draft=validate(JSON.parse(await file.text()));edit();$('status').textContent='Template loaded for review. Select Save flow to use it.';}
+ catch(error){$('status').textContent='Import failed. '+error.message;}
+ event.target.value='';
+};
+reset(config===sample);render();
+</script>
+</html>
