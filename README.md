@@ -98,3 +98,7 @@ Jordan built the original workbook before AI-assisted development was part of hi
 ![Discovery with selected customer needs](docs/screenshots/callflow-v2-discovery.jpg)
 
 ![Presentation with offer-specific reasons, features, and benefits](docs/screenshots/callflow-v2-presentation.jpg)
+
+## Why it is built this way
+
+Read [Design decisions and tradeoffs](docs/DESIGN-DECISIONS.md) for the problem, alternatives, architecture, failure modes, evidence, and scope boundaries. This explains the implementation decisions beyond the setup instructions.
