@@ -1,0 +1,1 @@
+{"name":"jordan-interactive-call-flow","version":"2.0.0","private":true,"type":"module","scripts":{"build":"node scripts/build.mjs","test":"node --test test/*.test.mjs","start":"node scripts/serve.mjs"},"engines":{"node":">=18"}}
